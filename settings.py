@@ -10,7 +10,7 @@ RED = (255, 0, 0)       # Path Line
 LIGHT_GRAY = (211, 211, 211) # Visited / Closed Set
 DARK_GRAY = (169, 169, 169)  # Grid Lines
 YELLOW = (255, 255, 0)  # Frontier / Open Set (Optional visual)
-ORANGE = (255, 165, 0) # Agent Position (Optional visual)
+ORANGE = (255, 165, 0)
 PASTEL_GRAY = (220, 220, 235)
 PASTEL_OUTLINE = (180, 180, 200)
 PASTEL_RED = (255, 140, 140)
@@ -31,6 +31,7 @@ WINDOW_HEIGHT = GRID_HEIGHT_CELLS * CELL_SIZE
 # --- Cell States (Internal Representation) ---
 EMPTY = 0
 OBSTACLE = 1
+DYNAMIC_OBSTACLE = 2
 # Note: Start/Goal are stored by coordinate, not changing cell value usually
 
 # --- Algorithm Constants ---

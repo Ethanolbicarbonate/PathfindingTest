@@ -72,9 +72,18 @@ def draw_grid_and_elements(screen, grid, start_pos, goal_pos, visited=None, path
     for r in range(s.GRID_HEIGHT_CELLS):
         for c in range(s.GRID_WIDTH_CELLS):
             rect = pygame.Rect(c * s.CELL_SIZE, r * s.CELL_SIZE, s.CELL_SIZE, s.CELL_SIZE)
-            if grid[r][c] == s.OBSTACLE:
-                pygame.draw.rect(screen, s.PASTEL_BLACK, rect)  # Softer black or deep charcoal
-            pygame.draw.rect(screen, s.PASTEL_OUTLINE, rect, 1)  # Thinner grid line (1px pastel)
+            cell_value = grid[r][c]
+            color_to_draw = None # Determine color first
+
+            if cell_value == s.OBSTACLE:
+                color_to_draw = s.PASTEL_BLACK
+            elif cell_value == s.DYNAMIC_OBSTACLE: # <<<--- ADDED CHECK
+                 color_to_draw = s.ORANGE
+
+            if color_to_draw:
+                 pygame.draw.rect(screen, color_to_draw, rect)
+
+            pygame.draw.rect(screen, s.PASTEL_OUTLINE, rect, 1) # Draw cell border over everything
 
     # 3. Draw Path (Smooth Pastel Red Line)
     if path and len(path) > 1:

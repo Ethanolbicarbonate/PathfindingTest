@@ -6,6 +6,10 @@ import random # For potential random obstacle placement
 import settings as s
 from grid_utils import create_grid, draw_grid_and_elements, is_valid
 from algorithms import dijkstra, a_star, DStarLite
+import os # Import os for directory handling
+import re # Import re for sanitizing filenames
+
+SCREENSHOT_DIR = "screenshots"
 
 class Visualizer:
     """Handles Pygame window and drawing updates."""
@@ -148,107 +152,108 @@ def apply_dynamic_change_major(grid, reference_path):
 # ----------- Add this near the other scenario functions in main.py -----------
 
 def setup_scenario_from_list(grid, obstacle_list):
-    """Sets up obstacles based on a provided list of coordinates."""
-    # Start with a clear grid
+    """Sets up STATIC obstacles based on a provided list."""
     for r in range(len(grid)):
         for c in range(len(grid[0])):
             grid[r][c] = s.EMPTY
-
-    # Add obstacles from the list
     for r_obs, c_obs in obstacle_list:
         if is_valid(r_obs, c_obs):
+            # Use STATIC obstacle type here
             grid[r_obs][c_obs] = s.OBSTACLE
         else:
             print(f"Warning: Obstacle coordinate { (r_obs, c_obs) } is out of bounds.")
 
 def apply_dynamic_change_minor(grid, reference_path, target_cells=None):
-    """Adds ONE obstacle. Uses target_cells if provided, otherwise places on path."""
-    if target_cells: # User specified exact cell(s)
+    """Adds ONE DYNAMIC obstacle."""
+    if target_cells:
         if isinstance(target_cells, list) and len(target_cells) > 0:
-            obstacle_pos = target_cells[0] # Use the first one for minor change
+            obstacle_pos = target_cells[0]
             if is_valid(obstacle_pos[0], obstacle_pos[1]) and grid[obstacle_pos[0]][obstacle_pos[1]] == s.EMPTY:
-                grid[obstacle_pos[0]][obstacle_pos[1]] = s.OBSTACLE
+                # Use DYNAMIC obstacle type
+                grid[obstacle_pos[0]][obstacle_pos[1]] = s.DYNAMIC_OBSTACLE # <<<--- MODIFIED
                 print(f"Applying CUSTOM MINOR dynamic change: Obstacle added at {obstacle_pos}")
                 return [obstacle_pos]
-            else:
-                 print(f"Warning: Cannot apply custom minor change at {obstacle_pos} (invalid or occupied).")
-                 return None
-        else:
-            print("Warning: Invalid target_cells format for minor change.")
+            # ... (error handling) ...
             return None
-
-    # --- Fallback to path-based logic if target_cells not provided ---
-    if not reference_path or len(reference_path) <= 2:
-        print("Warning: Cannot apply path-based minor change, reference path too short or None.")
+        # ... (error handling) ...
         return None
 
-    potential_indices = list(range(1, len(reference_path) - 1))
-    random.shuffle(potential_indices)
-
+    if not reference_path or len(reference_path) <= 2: return None
+    potential_indices = list(range(1, len(reference_path) - 1)); random.shuffle(potential_indices)
     for idx in potential_indices:
         obstacle_pos = reference_path[idx]
         if obstacle_pos != start_pos and obstacle_pos != goal_pos:
              if is_valid(obstacle_pos[0], obstacle_pos[1]) and grid[obstacle_pos[0]][obstacle_pos[1]] == s.EMPTY:
-                 grid[obstacle_pos[0]][obstacle_pos[1]] = s.OBSTACLE
+                 # Use DYNAMIC obstacle type
+                 grid[obstacle_pos[0]][obstacle_pos[1]] = s.DYNAMIC_OBSTACLE # <<<--- MODIFIED
                  print(f"Applying PATH-BASED MINOR dynamic change: Obstacle added at {obstacle_pos}")
                  return [obstacle_pos]
-
-    print("Warning: Could not find suitable place for path-based minor change.")
-    return None
+    print("Warning: Could not find suitable place for path-based minor change."); return None
 
 def apply_dynamic_change_major(grid, reference_path, target_cells=None):
-    """Adds MULTIPLE obstacles. Uses target_cells if provided, otherwise places near path."""
+    """Adds MULTIPLE DYNAMIC obstacles."""
     changed_cells = []
-    if target_cells: # User specified exact cells
+    if target_cells:
         if isinstance(target_cells, list):
             count = 0
             for obstacle_pos in target_cells:
                  if is_valid(obstacle_pos[0], obstacle_pos[1]) and grid[obstacle_pos[0]][obstacle_pos[1]] == s.EMPTY:
-                     grid[obstacle_pos[0]][obstacle_pos[1]] = s.OBSTACLE
+                     # Use DYNAMIC obstacle type
+                     grid[obstacle_pos[0]][obstacle_pos[1]] = s.DYNAMIC_OBSTACLE # <<<--- MODIFIED
                      changed_cells.append(obstacle_pos)
                      count +=1
-                 else:
-                      print(f"Warning: Cannot apply custom major change at {obstacle_pos} (invalid or occupied).")
-
+                 # ... (error handling) ...
             if count > 0:
-                print(f"Applying CUSTOM MAJOR dynamic change: {count} obstacles added at specified locations: {changed_cells}")
+                print(f"Applying CUSTOM MAJOR dynamic change: {count} obstacles added: {changed_cells}")
                 return changed_cells
-            else:
-                print("Warning: No valid custom major changes applied from target_cells.")
-                return None
-        else:
-             print("Warning: Invalid target_cells format for major change.")
-             return None
+            # ... (error handling) ...
+            return None
+        # ... (error handling) ...
+        return None
 
-    # --- Fallback to path-based logic if target_cells not provided ---
-    if not reference_path or len(reference_path) <= 4:
-         print("Warning: Cannot apply path-based major change, reference path too short or None.")
-         return None
-
+    if not reference_path or len(reference_path) <= 4: return None
     num_obstacles = random.randint(3, 6)
     mid_point_index = len(reference_path) // 2
-    indices_to_try = list(range(max(1, mid_point_index - num_obstacles // 2),
-                                min(len(reference_path) - 1, mid_point_index + num_obstacles // 2 + 1)))
+    indices_to_try = list(range(max(1, mid_point_index - num_obstacles // 2), min(len(reference_path) - 1, mid_point_index + num_obstacles // 2 + 1)))
     random.shuffle(indices_to_try)
-
     count = 0
     for idx in indices_to_try:
          if count >= num_obstacles: break
          obstacle_pos = reference_path[idx]
          if obstacle_pos != start_pos and obstacle_pos != goal_pos:
             if is_valid(obstacle_pos[0], obstacle_pos[1]) and grid[obstacle_pos[0]][obstacle_pos[1]] == s.EMPTY:
-                grid[obstacle_pos[0]][obstacle_pos[1]] = s.OBSTACLE
+                # Use DYNAMIC obstacle type
+                grid[obstacle_pos[0]][obstacle_pos[1]] = s.DYNAMIC_OBSTACLE # <<<--- MODIFIED
                 changed_cells.append(obstacle_pos)
                 count += 1
-
-    if not changed_cells:
-         print("Warning: Could not apply path-based major change.")
-         return None
+    if not changed_cells: return None
     else:
-        print(f"Applying PATH-BASED MAJOR dynamic change: {len(changed_cells)} obstacles added near path: {changed_cells}")
+        print(f"Applying PATH-BASED MAJOR dynamic change: {len(changed_cells)} obstacles added: {changed_cells}")
         return changed_cells
 
+# --- Screenshot Helper ---
+def sanitize_filename(name):
+    """Removes or replaces characters invalid for filenames."""
+    name = name.replace(" ", "_") # Replace spaces
+    name = re.sub(r'[\\/*?:"<>|]', "", name) # Remove other invalid chars
+    return name
 
+def save_screenshot(screen, scenario_name, algo_name, stage):
+    """Saves the current screen state to a file."""
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+
+        # Sanitize names for filename
+        s_scenario = sanitize_filename(scenario_name)
+        s_algo = sanitize_filename(algo_name)
+        s_stage = sanitize_filename(stage)
+
+        filename = f"{SCREENSHOT_DIR}/{s_scenario}_{s_algo}_{s_stage}.png"
+        pygame.image.save(screen, filename)
+        # print(f"Screenshot saved: {filename}") # Optional confirmation
+    except Exception as e:
+        print(f"Error saving screenshot {filename}: {e}")
 
 
 
@@ -390,6 +395,7 @@ if __name__ == "__main__":
             path_len = len(path) - 1 if path else "N/A"
             print(f"{name} Initial Results: Time={time_taken:.6f}s, Nodes={nodes_exp}, PathLen={path_len}")
             vis.update_search_view(visited=visited, path=path, message=f"{name} Initial - Path: {path_len} nodes: {nodes_exp}")
+            save_screenshot(vis.screen, scenario_name, name, "InitialPlan") # <<<--- SAVE SCREENSHOT
             time.sleep(1)
 
         # --- Dynamic Change Simulation (If applicable) ---
@@ -407,6 +413,7 @@ if __name__ == "__main__":
 
             if changed_cells:
                  vis.update_search_view(message=f"{len(changed_cells)} obstacle(s) added. Press Enter.")
+                 save_screenshot(vis.screen, scenario_name, "Grid", "AfterChange") # <<<--- SAVE SCREENSHOT
                  input("Press Enter to continue to replanning...")
 
                  # --- Replanning Setup ---
@@ -456,6 +463,7 @@ if __name__ == "__main__":
                     path_len = len(path) - 1 if path else "N/A"
                     print(f"{name} Replan Results (from {replan_start_pos if name != 'D* Lite' else 'internal state'}): Time={time_taken:.6f}s, Nodes={nodes_exp}, PathLen(seg/full)={path_len}")
                     vis.update_search_view(visited=visited, path=path, message=f"{name} Replan - Path: {path_len} nodes: {nodes_exp}")
+                    save_screenshot(vis.screen, scenario_name, name, "Replan") # <<<--- SAVE SCREENSHOT
                     time.sleep(1)
 
         print(f"\n--- Scenario {scenario_name} Finished ---")

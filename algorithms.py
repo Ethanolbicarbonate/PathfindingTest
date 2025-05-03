@@ -44,25 +44,37 @@ def heuristic_diagonal_integer(pos1, pos2):
 
 # --- Cost Calculation Helper (Modified) ---
 def calculate_move_cost(grid, u_pos, v_pos):
-    """Calculates INTEGER movement cost."""
-    # Use costs from settings if defined, otherwise literal 10/14
+    """Calculates INTEGER movement cost, treating both obstacle types as impassable."""
     D = getattr(s, 'COST_ORTHOGONAL', 10)
     D2 = getattr(s, 'COST_DIAGONAL', 14)
 
-    if not is_valid(v_pos[0], v_pos[1]) or grid[v_pos[0]][v_pos[1]] == s.OBSTACLE: return s.INFINITY
-    if not is_valid(u_pos[0], u_pos[1]) or grid[u_pos[0]][u_pos[1]] == s.OBSTACLE: return s.INFINITY
+    # Check target validity and impassability
+    if not is_valid(v_pos[0], v_pos[1]): return s.INFINITY
+    v_cell_state = grid[v_pos[0]][v_pos[1]]
+    if v_cell_state == s.OBSTACLE or v_cell_state == s.DYNAMIC_OBSTACLE: return s.INFINITY # <<<--- MODIFIED CHECK
+
+    # Check source validity and impassability (less critical but good practice)
+    if not is_valid(u_pos[0], u_pos[1]): return s.INFINITY
+    u_cell_state = grid[u_pos[0]][u_pos[1]]
+    if u_cell_state == s.OBSTACLE or u_cell_state == s.DYNAMIC_OBSTACLE: return s.INFINITY # <<<--- MODIFIED CHECK
+
 
     dx = abs(u_pos[1] - v_pos[1])
     dy = abs(u_pos[0] - v_pos[0])
 
     if dx == 1 and dy == 1: # Diagonal
-        if (not is_valid(u_pos[0], v_pos[1]) or grid[u_pos[0]][v_pos[1]] == s.OBSTACLE or
-            not is_valid(v_pos[0], u_pos[1]) or grid[v_pos[0]][u_pos[1]] == s.OBSTACLE):
-            return s.INFINITY # Blocked corner
+        # Corner cutting check
+        u_row_v_col_state = grid[u_pos[0]][v_pos[1]]
+        v_row_u_col_state = grid[v_pos[0]][u_pos[1]]
+        corner_blocked = (u_row_v_col_state == s.OBSTACLE or u_row_v_col_state == s.DYNAMIC_OBSTACLE or
+                          v_row_u_col_state == s.OBSTACLE or v_row_u_col_state == s.DYNAMIC_OBSTACLE)
+
+        if not is_valid(u_pos[0], v_pos[1]) or not is_valid(v_pos[0], u_pos[1]) or corner_blocked:
+            return s.INFINITY
         else:
-            return D2 # Integer diagonal cost
+            return D2
     elif dx + dy == 1: # Orthogonal
-        return D # Integer orthogonal cost
+        return D
     else:
         return s.INFINITY
 
@@ -223,28 +235,37 @@ class DStarLite:
         return (min_g_rhs + h + self.km, min_g_rhs)
 
     def _cost(self, u_pos, v_pos):
-        """Calculates INTEGER movement cost c(u, v)."""
-        # Use costs from settings or literal 10/14
+        """Calculates INTEGER movement cost c(u, v), treating both obstacle types impassable."""
         D = getattr(s, 'COST_ORTHOGONAL', 10)
         D2 = getattr(s, 'COST_DIAGONAL', 14)
 
-        # Rest of the logic is same as calculate_move_cost helper
-        if not is_valid(u_pos[0], u_pos[1]) or self.grid[u_pos[0]][u_pos[1]] == s.OBSTACLE or \
-           not is_valid(v_pos[0], v_pos[1]) or self.grid[v_pos[0]][v_pos[1]] == s.OBSTACLE:
-            return s.INFINITY
+        # Check target validity and impassability
+        if not is_valid(v_pos[0], v_pos[1]): return s.INFINITY
+        v_cell_state = self.grid[v_pos[0]][v_pos[1]] # Use self.grid
+        if v_cell_state == s.OBSTACLE or v_cell_state == s.DYNAMIC_OBSTACLE: return s.INFINITY # <<<--- MODIFIED CHECK
+
+        # Check source validity and impassability
+        if not is_valid(u_pos[0], u_pos[1]): return s.INFINITY
+        u_cell_state = self.grid[u_pos[0]][u_pos[1]]
+        if u_cell_state == s.OBSTACLE or u_cell_state == s.DYNAMIC_OBSTACLE: return s.INFINITY # <<<--- MODIFIED CHECK
+
+
         dx = abs(u_pos[1] - v_pos[1])
         dy = abs(u_pos[0] - v_pos[0])
+
         if dx == 1 and dy == 1: # Diagonal
-            if (not is_valid(u_pos[0], v_pos[1]) or self.grid[u_pos[0]][v_pos[1]] == s.OBSTACLE or
-                not is_valid(v_pos[0], u_pos[1]) or self.grid[v_pos[0]][u_pos[1]] == s.OBSTACLE):
+            u_row_v_col_state = self.grid[u_pos[0]][v_pos[1]]
+            v_row_u_col_state = self.grid[v_pos[0]][u_pos[1]]
+            corner_blocked = (u_row_v_col_state == s.OBSTACLE or u_row_v_col_state == s.DYNAMIC_OBSTACLE or
+                              v_row_u_col_state == s.OBSTACLE or v_row_u_col_state == s.DYNAMIC_OBSTACLE)
+            if not is_valid(u_pos[0], v_pos[1]) or not is_valid(v_pos[0], u_pos[1]) or corner_blocked:
                 return s.INFINITY
             else:
-                return D2 # Integer diagonal cost
+                return D2
         elif dx + dy == 1: # Orthogonal
-            return D # Integer orthogonal cost
+            return D
         else:
             return s.INFINITY
-
     def _initialize(self):
         """Initializes D* Lite state."""
         self.g_values.clear()
