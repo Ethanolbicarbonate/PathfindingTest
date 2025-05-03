@@ -286,7 +286,7 @@ if __name__ == "__main__":
     ] + [
         (r, 11) for r in range(2, 18) if r not in range(11, 13)
     ] + [
-        (8, c) for c in range(7, 26)
+        (8, c) for c in list(range(7, 9)) + list(range(10, 26))
     ] + [
         (r, 25) for r in list(range(0, 7)) + list(range(14, 20))
     ] + [

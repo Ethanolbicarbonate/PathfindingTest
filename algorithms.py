@@ -30,29 +30,40 @@ def heuristic_euclidean(pos1, pos2):
      dy = pos1[0] - pos2[0]
      return math.sqrt(dx*dx + dy*dy)
 
-# --- Cost Calculation Helper (Used by Dijkstra and A*) ---
+# --- Integer Heuristic ---
+def heuristic_diagonal_integer(pos1, pos2):
+    """Integer-based diagonal distance heuristic."""
+    dx = abs(pos1[1] - pos2[1])
+    dy = abs(pos1[0] - pos2[0])
+    # Using costs from settings if defined, otherwise literal 10/14
+    D = getattr(s, 'COST_ORTHOGONAL', 10)
+    D2 = getattr(s, 'COST_DIAGONAL', 14)
+    # return D * (dx + dy) + (D2 - 2 * D) * min(dx, dy) # Original Octile formula scaled
+    # Simpler equivalent scaled formula:
+    return D * max(dx, dy) + (D2 - D) * min(dx, dy)
+
+# --- Cost Calculation Helper (Modified) ---
 def calculate_move_cost(grid, u_pos, v_pos):
-    """Calculates movement cost, handling diagonals and preventing corner cutting."""
-    # Check target cell just in case (should be okay if get_neighbors worked)
-    if not is_valid(v_pos[0], v_pos[1]) or grid[v_pos[0]][v_pos[1]] == s.OBSTACLE:
-        return s.INFINITY
+    """Calculates INTEGER movement cost."""
+    # Use costs from settings if defined, otherwise literal 10/14
+    D = getattr(s, 'COST_ORTHOGONAL', 10)
+    D2 = getattr(s, 'COST_DIAGONAL', 14)
+
+    if not is_valid(v_pos[0], v_pos[1]) or grid[v_pos[0]][v_pos[1]] == s.OBSTACLE: return s.INFINITY
+    if not is_valid(u_pos[0], u_pos[1]) or grid[u_pos[0]][u_pos[1]] == s.OBSTACLE: return s.INFINITY
 
     dx = abs(u_pos[1] - v_pos[1])
     dy = abs(u_pos[0] - v_pos[0])
 
-    if dx == 1 and dy == 1: # Diagonal move
-        # Prevent cutting corners: Check orthogonal neighbours needed for diagonal
-        # Check grid[u_row][v_col] and grid[v_row][u_col]
+    if dx == 1 and dy == 1: # Diagonal
         if (not is_valid(u_pos[0], v_pos[1]) or grid[u_pos[0]][v_pos[1]] == s.OBSTACLE or
             not is_valid(v_pos[0], u_pos[1]) or grid[v_pos[0]][u_pos[1]] == s.OBSTACLE):
-            return s.INFINITY # Corner is blocked
+            return s.INFINITY # Blocked corner
         else:
-            return math.sqrt(2) # Diagonal cost
-    elif dx + dy == 1: # Orthogonal move
-        return 1.0 # Orthogonal cost
+            return D2 # Integer diagonal cost
+    elif dx + dy == 1: # Orthogonal
+        return D # Integer orthogonal cost
     else:
-        # Should not happen if u_pos and v_pos are direct neighbours
-        print(f"Warning: Cost calculation between non-neighbors? {u_pos} -> {v_pos}")
         return s.INFINITY
 
 
@@ -107,7 +118,7 @@ def dijkstra(grid, start_pos, goal_pos, visualizer=None, allow_diagonal=True): #
 
 # --- A* (Modified) ---
 # Choose your preferred heuristic here
-ACTIVE_HEURISTIC = heuristic_diagonal # Or heuristic_euclidean
+ACTIVE_HEURISTIC = heuristic_diagonal_integer # Or heuristic_euclidean
 
 def a_star(grid, start_pos, goal_pos, visualizer=None, allow_diagonal=True): # Add flag
     """Finds the shortest path using A* algorithm."""
@@ -159,27 +170,32 @@ def a_star(grid, start_pos, goal_pos, visualizer=None, allow_diagonal=True): # A
     return path, end_time - start_time, nodes_expanded, visited_for_vis
 
 
-# --- D* Lite (Modified) ---
+# --- D* Lite Class (Fresh Implementation) ---
 class DStarLite:
-    # Use chosen heuristic
-    ACTIVE_HEURISTIC = heuristic_diagonal # Or heuristic_euclidean
+    ACTIVE_HEURISTIC = heuristic_diagonal_integer
 
-    def __init__(self, grid, start_pos, goal_pos, visualizer=None, allow_diagonal=True): # Add flag
+    def __init__(self, grid, start_pos, goal_pos, visualizer=None, allow_diagonal=True):
+        # --- Core Attributes ---
         self.grid = grid
         self.start_pos = start_pos
         self.goal_pos = goal_pos
+        self.allow_diagonal = allow_diagonal
+
+        # --- D* State ---
+        self.g_values = {}     # g(s): Estimated cost from start to s
+        self.rhs_values = {}   # rhs(s): Lookahead value based on successors' g-values
+        self.priority_queue = [] # U: The priority queue (min-heap) [(key, node), ...]
+        self.km = 0            # Key modifier (for moving agent, 0 here)
+
+        # --- Performance & Visualization ---
         self.visualizer = visualizer
-        self.allow_diagonal = allow_diagonal # Store flag
+        self.nodes_expanded_total = 0 # Cumulative across calls
+        self.visited_for_vis = set() # Cumulative visited nodes for drawing
 
-        self.g_values = {}
-        self.rhs_values = {}
-        self.priority_queue = []
-        self.km = 0
-        self.nodes_expanded_total = 0
-        self.visited_for_vis = set()
-
+        # --- Initialization ---
         self._initialize()
 
+    # --- Helper Methods for State Access ---
     def _get_g(self, pos):
         return self.g_values.get(pos, s.INFINITY)
 
@@ -192,124 +208,157 @@ class DStarLite:
     def _set_rhs(self, pos, value):
         self.rhs_values[pos] = value
 
-    def _calculate_key(self, pos):
-        g = self._get_g(pos)
-        rhs = self._get_rhs(pos)
+    # --- Core D* Logic ---
+    def _calculate_key(self, s_pos):
+        """Calculates the priority key for node s."""
+        g = self._get_g(s_pos)
+        rhs = self._get_rhs(s_pos)
         min_g_rhs = min(g, rhs)
-        # Use chosen heuristic
+
+        # Use the class-defined heuristic function
         heuristic_func = DStarLite.ACTIVE_HEURISTIC
-        h = heuristic_func(self.start_pos, pos)
-        return (min_g_rhs + h + self.km, min_g_rhs) # Full key needed if agent moves
+        h = heuristic_func(self.start_pos, s_pos)
+
+        # Key = [k1, k2] = [min(g(s), rhs(s)) + h(s_start, s) + km; min(g(s), rhs(s))]
+        return (min_g_rhs + h + self.km, min_g_rhs)
 
     def _cost(self, u_pos, v_pos):
-        """Cost of moving from u to v. Handles diagonals and corner cutting."""
-        # Replicate logic from calculate_move_cost directly here
-        if not is_valid(v_pos[0], v_pos[1]) or self.grid[v_pos[0]][v_pos[1]] == s.OBSTACLE:
-            return s.INFINITY
-        # Check source too, though usually okay
-        if not is_valid(u_pos[0], u_pos[1]) or self.grid[u_pos[0]][u_pos[1]] == s.OBSTACLE:
-             return s.INFINITY
+        """Calculates INTEGER movement cost c(u, v)."""
+        # Use costs from settings or literal 10/14
+        D = getattr(s, 'COST_ORTHOGONAL', 10)
+        D2 = getattr(s, 'COST_DIAGONAL', 14)
 
+        # Rest of the logic is same as calculate_move_cost helper
+        if not is_valid(u_pos[0], u_pos[1]) or self.grid[u_pos[0]][u_pos[1]] == s.OBSTACLE or \
+           not is_valid(v_pos[0], v_pos[1]) or self.grid[v_pos[0]][v_pos[1]] == s.OBSTACLE:
+            return s.INFINITY
         dx = abs(u_pos[1] - v_pos[1])
         dy = abs(u_pos[0] - v_pos[0])
-
-        if dx == 1 and dy == 1: # Diagonal move
-            # Prevent cutting corners
+        if dx == 1 and dy == 1: # Diagonal
             if (not is_valid(u_pos[0], v_pos[1]) or self.grid[u_pos[0]][v_pos[1]] == s.OBSTACLE or
                 not is_valid(v_pos[0], u_pos[1]) or self.grid[v_pos[0]][u_pos[1]] == s.OBSTACLE):
-                return s.INFINITY # Corner is blocked
+                return s.INFINITY
             else:
-                return math.sqrt(2) # Diagonal cost
-        elif dx + dy == 1: # Orthogonal move
-            return 1.0 # Orthogonal cost
+                return D2 # Integer diagonal cost
+        elif dx + dy == 1: # Orthogonal
+            return D # Integer orthogonal cost
         else:
-            # Should not happen for neighbors
             return s.INFINITY
 
-
     def _initialize(self):
-        self.g_values = {}
-        self.rhs_values = {}
+        """Initializes D* Lite state."""
+        self.g_values.clear()
+        self.rhs_values.clear()
         self.priority_queue = []
         self.km = 0
+        self.visited_for_vis.clear()
+        # All g/rhs implicitly infinity
+
+        # Set rhs(goal) = 0 and add goal to queue
         self._set_rhs(self.goal_pos, 0)
         heapq.heappush(self.priority_queue, (self._calculate_key(self.goal_pos), self.goal_pos))
 
-    def _update_vertex(self, pos):
-        if pos != self.goal_pos:
+    def _update_queue(self, u):
+        """Removes u if present and re-adds if inconsistent."""
+        # 1. Remove (inefficient O(N) but simple)
+        in_queue = False
+        temp_queue = []
+        for key, node in self.priority_queue:
+            if node == u:
+                in_queue = True
+            else:
+                temp_queue.append((key, node))
+        needs_heapify = in_queue # Only heapify if something was removed
+        self.priority_queue = temp_queue
+        if needs_heapify:
+             heapq.heapify(self.priority_queue)
+
+        # 2. Re-add if inconsistent
+        if self._get_g(u) != self._get_rhs(u):
+            heapq.heappush(self.priority_queue, (self._calculate_key(u), u))
+
+
+    def _update_vertex(self, u):
+        """Updates rhs value for node u and its queue status."""
+        if u != self.goal_pos:
             min_rhs = s.INFINITY
-            # Pass allow_diagonal flag
-            for neighbor in get_neighbors(self.grid, pos[0], pos[1], allow_diagonal=self.allow_diagonal):
-                 # Calculate cost from neighbor to pos
-                 cost_neighbor_to_pos = self._cost(neighbor, pos)
-                 g_neighbor = self._get_g(neighbor)
-                 # D* Lite looks forward from successors: rhs(u) = min_{s' in Succ(u)}( c(u, s') + g(s') )
-                 # So we need cost(pos, neighbor) + g(neighbor)
-                 cost_pos_to_neighbor = self._cost(pos, neighbor) # Calculate cost
-                 min_rhs = min(min_rhs, cost_pos_to_neighbor + g_neighbor)
-            self._set_rhs(pos, min_rhs)
+            # Calculate rhs(u) = min_{s' in Succ(u)} ( c(u, s') + g(s') )
+            for s_prime in get_neighbors(self.grid, u[0], u[1], allow_diagonal=self.allow_diagonal):
+                cost_u_to_s_prime = self._cost(u, s_prime)
+                if cost_u_to_s_prime == s.INFINITY: continue
 
-        # Remove node from queue (inefficient method)
-        self.priority_queue = [(key, node) for key, node in self.priority_queue if node != pos]
-        heapq.heapify(self.priority_queue)
+                g_s_prime = self._get_g(s_prime)
+                min_rhs = min(min_rhs, cost_u_to_s_prime + g_s_prime)
+            self._set_rhs(u, min_rhs)
 
-        if self._get_g(pos) != self._get_rhs(pos):
-            heapq.heappush(self.priority_queue, (self._calculate_key(pos), pos))
+        # Update the node's status in the priority queue
+        self._update_queue(u)
+
 
     def compute_shortest_path(self):
-        """Computes or recomputes the path after initialization or changes. (Refined Loop)"""
+        """Computes/recomputes the path until start node is consistent and optimal."""
         start_time = time.perf_counter()
         nodes_expanded_this_call = 0
-        current_call_visited = set()
+        current_call_visited = set() # Nodes processed in this specific call
 
-        # Ensure start key calculation uses current state
-        # No real change needed here, calculation is dynamic
+        iter_count = 0 # Safety break counter
+        max_iters = s.GRID_WIDTH_CELLS * s.GRID_HEIGHT_CELLS * 10 # Generous limit
 
-        while self.priority_queue: # Continue as long as there are inconsistent nodes to process
-            # Peek at the top key/node without popping yet
-            key_top, u_top = self.priority_queue[0]
+        while self.priority_queue:
+            iter_count += 1
+            if iter_count > max_iters:
+                 print("!!! D* Lite Error: Max iterations reached in compute_shortest_path loop!")
+                 break
 
-            # Recalculate the start node's key based on its CURRENT g/rhs
+            # Peek top key and calculate current start key
+            key_top, u_peek = self.priority_queue[0]
             start_key_current = self._calculate_key(self.start_pos)
 
-            # Termination condition: Top key is >= start's key AND start is consistent
+            # Termination condition check
             if key_top >= start_key_current and self._get_rhs(self.start_pos) == self._get_g(self.start_pos):
-                break # Stop when start is consistent and optimal according to PQ
+                # print(f"Compute loop finished: Start consistent, TopKey={key_top}, StartKey={start_key_current}")
+                break
 
-            # --- Pop the node with the smallest key ---
-            key_old_popped, u = heapq.heappop(self.priority_queue)
+            # Pop the node with the smallest key
+            key_popped, u = heapq.heappop(self.priority_queue)
 
-            # Recalculate the key for the popped node 'u' based on its current g/rhs
+            # Stale check: Recalculate key for u based on its current g/rhs state
             key_new_recalculated = self._calculate_key(u)
-
-            # Check if the key used for popping (key_old_popped) is stale compared to its current state
-            if key_old_popped < key_new_recalculated:
-                # Key was outdated (node's g/rhs improved since it was added/updated)
-                # Push it back with the up-to-date key
+            if key_popped < key_new_recalculated:
+                # Key was outdated. Push back with updated key and continue.
                 heapq.heappush(self.priority_queue, (key_new_recalculated, u))
-                continue # Process next node in PQ
+                continue
 
-            # Process the node 'u'
+            # Mark as processed for this call
             nodes_expanded_this_call += 1
             current_call_visited.add(u)
 
-            if self._get_g(u) > self._get_rhs(u): # Overconsistent -> make consistent
-                self._set_g(u, self._get_rhs(u))
-                # Update predecessors (neighbors whose rhs depends on u's g)
-                for neighbor in get_neighbors(self.grid, u[0], u[1], allow_diagonal=self.allow_diagonal):
-                    self._update_vertex(neighbor)
-            else: # Underconsistent -> make consistent (g(u) was infinity or too low)
-                 self._set_g(u, s.INFINITY)
-                 # Update itself first, then predecessors
-                 nodes_to_update = [u] + get_neighbors(self.grid, u[0], u[1], allow_diagonal=self.allow_diagonal)
-                 for node_to_update in nodes_to_update:
-                     self._update_vertex(node_to_update)
+            # --- Process Node u ---
+            g_old_u = self._get_g(u) # Store old g for comparison below
 
-            # Visualization Hook (Optional)
-            if self.visualizer and nodes_expanded_this_call % 20 == 0: # Update less frequently
+            if g_old_u > self._get_rhs(u): # Overconsistent case: g > rhs
+                # Make consistent: set g(u) = rhs(u)
+                self._set_g(u, self._get_rhs(u))
+                # g(u) decreased, potentially decreasing rhs of predecessors v. Update predecessors.
+                for v_predecessor in get_neighbors(self.grid, u[0], u[1], allow_diagonal=self.allow_diagonal):
+                     if v_predecessor != self.goal_pos: # No need to update goal's rhs
+                        self._update_vertex(v_predecessor)
+            else: # Underconsistent case: g <= rhs (but we popped it, so key must be lowest)
+                  # This implies g < rhs (or g=rhs=inf). Set g = infinity.
+                  # This increase in g(u) might increase rhs of predecessors v.
+                  self._set_g(u, s.INFINITY)
+                  # Update predecessors v first, THEN update u itself (its rhs might change now)
+                  nodes_to_update = get_neighbors(self.grid, u[0], u[1], allow_diagonal=self.allow_diagonal) + [u]
+                  for node in nodes_to_update:
+                      if node != self.goal_pos: # Skip goal update
+                         self._update_vertex(node)
+
+            # --- Visualization Hook ---
+            if self.visualizer and nodes_expanded_this_call % 30 == 0:
                 self.visited_for_vis.update(current_call_visited)
                 self.visualizer.update_search_view(visited=self.visited_for_vis)
                 self.visualizer.handle_events()
+        # --- End While Loop ---
 
         # Final visualization update
         if self.visualizer:
@@ -319,74 +368,117 @@ class DStarLite:
         end_time = time.perf_counter()
         self.nodes_expanded_total += nodes_expanded_this_call
 
-        path = self._reconstruct_dstar_path() # Attempt reconstruction
+        # Attempt path reconstruction
+        path = self._reconstruct_dstar_path_robust() # Use the robust version
 
-        # --- Add a check AFTER reconstruction ---
         if path is None or (path and path[-1] != self.goal_pos):
-             print(f"!!! D* Lite Warning: compute_shortest_path finished but reconstruction failed or didn't reach goal. Final g(start)={self._get_g(self.start_pos)}")
-             # Could potentially trigger more processing here if needed, but indicates an issue.
+             print(f"!!! D* Lite Warning: compute_shortest_path finished but reconstruction failed or didn't reach goal. Final g(start)={self._get_g(self.start_pos):.2f}, rhs(start)={self._get_rhs(self.start_pos):.2f}")
+             # You could add debugging here: print g/rhs values around start/goal/problem area
 
         return path, end_time - start_time, nodes_expanded_this_call, self.visited_for_vis
 
-    def _reconstruct_dstar_path(self):
-        """Reconstructs path by following lowest cost neighbors from start."""
+
+    # Replace the existing _reconstruct_dstar_path_robust method with this one
+
+    def _reconstruct_dstar_path_robust(self):
+        """Reconstructs path using cost+g, with heuristic tie-breaking and loop avoidance."""
         if self._get_g(self.start_pos) == s.INFINITY:
-            print("D* Lite: Reconstruction failed, start node is unreachable.")
+            print("D* Lite: Reconstruction failed - start node is unreachable.")
             return None
 
         path = [self.start_pos]
         current = self.start_pos
+        # Keep track of nodes visited IN THIS RECONSTRUCTION to detect loops
+        visited_in_reconstruction = {current}
+        max_path_len = s.GRID_WIDTH_CELLS * s.GRID_HEIGHT_CELLS * 3
+        step_count = 0
+
         while current != self.goal_pos:
-            best_neighbor = None
-            min_cost_plus_g = s.INFINITY
-            found_next = False
+            step_count += 1
+            if step_count > max_path_len:
+                print(f"D* Lite path reconstruction loop detected (safety break after {max_path_len} steps).")
+                print(f"  Tail of path: ... {path[-15:]}")
+                return path
 
-            # Pass allow_diagonal flag
+            possible_next_steps = [] # Store tuples: (cost+g, h_to_goal, neighbor_node)
+
+            # --- Gather Candidate Next Steps ---
             for neighbor in get_neighbors(self.grid, current[0], current[1], allow_diagonal=self.allow_diagonal):
-                cost = self._cost(current, neighbor) # Get cost from current to neighbor
-                if cost == s.INFINITY: continue # Skip blocked moves
+                cost = self._cost(current, neighbor)
+                if cost == s.INFINITY: continue
 
-                cost_plus_g = cost + self._get_g(neighbor)
+                g_neighbor = self._get_g(neighbor)
+                # Generally avoid nodes marked as unreachable, unless it IS the goal
+                if g_neighbor == s.INFINITY and neighbor != self.goal_pos: continue
 
-                # Tie-breaking can be added here if needed
-                if cost_plus_g < min_cost_plus_g:
-                    min_cost_plus_g = cost_plus_g
-                    best_neighbor = neighbor
-                    found_next = True
+                cost_plus_g = cost + g_neighbor
+                # Calculate heuristic from neighbor to goal
+                h_to_goal = DStarLite.ACTIVE_HEURISTIC(neighbor, self.goal_pos)
+                possible_next_steps.append((cost_plus_g, h_to_goal, neighbor))
 
-            if not found_next or best_neighbor is None:
-                 print(f"D* Lite path reconstruction failed at {current}, g={self._get_g(current)}")
-                 # Print neighbor costs for debugging
-                 # for n in get_neighbors(self.grid, current[0], current[1], allow_diagonal=self.allow_diagonal):
-                 #    print(f"  Neighbor {n}: cost={self._cost(current, n)}, g={self._get_g(n)}")
-                 return path # Return partial path found so far? Or None?
-
-            # Check for direct cycle back to current node (shouldn't happen with proper costs)
-            if best_neighbor == current:
-                 print(f"D* Lite path reconstruction cycle detected at {current}.")
+            if not possible_next_steps:
+                 print(f"D* Lite path reconstruction failed at {current}. No valid/reachable neighbors found. g={self._get_g(current):.2f}, rhs={self._get_rhs(current):.2f}")
                  return path # Return partial path
 
+            # --- Sort Candidates ---
+            # Sort primarily by cost+g (ascending)
+            # Secondarily by heuristic to goal (ascending - prefer nodes closer to goal)
+            possible_next_steps.sort()
+
+            # --- Select Best Neighbor (Avoiding Cycles) ---
+            best_neighbor = None
+            for cost_g_val, h_val, node in possible_next_steps:
+                # Crucial Check: Has this node already been added to the path *during this reconstruction*?
+                if node not in visited_in_reconstruction:
+                    best_neighbor = node
+                    # print(f"  Selected {node} (cost+g={cost_g_val:.2f}, h={h_val:.2f})") # Debug
+                    break # Found the best option that doesn't immediately create a cycle
+
+            # If all candidates lead to already visited nodes (indicates a potential dead end or complex loop closing)
+            if best_neighbor is None:
+                if possible_next_steps:
+                     # Fallback: Take the absolute best (lowest cost+g) even if it revisits.
+                     # This might be necessary to backtrack out of a dead end.
+                     cost_g_val, h_val, node = possible_next_steps[0]
+                     best_neighbor = node
+                     # Check if this forced choice is the node just before current (the 'previous' node)
+                     previous = path[-2] if len(path) >= 2 else None
+                     if best_neighbor == previous:
+                         # print(f"Path Recon: Forced backtrack from {current} to {previous}")
+                         pass # Allow backtracking if forced
+                     else:
+                          # We are forced to revisit a node that's not the immediate predecessor. Cycle!
+                          print(f"Path Recon: Cycle unavoidable at {current}. Forced to revisit {best_neighbor} (not immediate predecessor). Path reconstruction likely failed.")
+                          # Returning the path here might be better than continuing indefinitely
+                          return path
+
+
+                else:
+                     # Should be caught by the "not possible_next_steps" check earlier
+                     print(f"Path Recon: Logic error - No possible steps, but list wasn't empty?")
+                     return path
+
+            # --- Update Path and State ---
             path.append(best_neighbor)
+            visited_in_reconstruction.add(best_neighbor) # Add to loop detection set for this run
             current = best_neighbor
+        # --- End While Loop ---
 
-            if len(path) > s.GRID_WIDTH_CELLS * s.GRID_HEIGHT_CELLS * 1.5: # Increased safety break
-                 print("D* Lite path reconstruction loop detected (long path).")
-                 return path # Return potentially incomplete path
-
-        return path
+        return path # Successfully reached goal
 
     def notify_change(self, changed_cells):
-        """Call this when obstacles are added/removed."""
-        # The core logic remains the same - update affected vertices
+        """Updates affected nodes after environment changes."""
+        # print(f"D* Lite notified of changes: {changed_cells}") # Debugging
         for cell_pos in changed_cells:
-            self._update_vertex(cell_pos)
-            # Pass allow_diagonal flag
-            for neighbor in get_neighbors(self.grid, cell_pos[0], cell_pos[1], allow_diagonal=self.allow_diagonal):
-                self._update_vertex(neighbor)
-        # Update km if agent moved (not implemented here)
+            # When cell_pos (u) changes (e.g., becomes obstacle), c(v, u) increases for predecessors v.
+            # This might increase rhs(v). Update predecessors.
+            for v_predecessor in get_neighbors(self.grid, cell_pos[0], cell_pos[1], allow_diagonal=self.allow_diagonal):
+                 self._update_vertex(v_predecessor) # Update nodes whose path *to* cell_pos changed
 
-    def update_start_pos(self, new_start):
-        """If the agent moves, update the start and km."""
-        # self.km += self.ACTIVE_HEURISTIC(self.start_pos, new_start) # If agent moved
-        self.start_pos = new_start
-        # Note: For pure replanning without agent movement, only notify_change is needed
+            # Also update cell_pos itself, as its rhs depends on its successors,
+            # and its own g-value might now be inconsistent.
+            self._update_vertex(cell_pos)
+
+        # km update would go here if agent was moving
+
+    # update_start_pos remains the same if only used for setting initial start
