@@ -1,6 +1,7 @@
-# ----------- grid_utils.py -----------
+# ----------- grid_utils.py (Modified) -----------
 import pygame
 import settings as s
+import math # Import math
 
 def create_grid(width, height):
     """Creates an empty grid."""
@@ -10,8 +11,8 @@ def is_valid(row, col):
     """Checks if a cell coordinate is within grid bounds."""
     return 0 <= row < s.GRID_HEIGHT_CELLS and 0 <= col < s.GRID_WIDTH_CELLS
 
-def get_neighbors(grid, row, col, allow_diagonal=False):
-    """Gets valid, non-obstacle neighbors of a cell."""
+def get_neighbors(grid, row, col, allow_diagonal=True): # Default to allowing diagonal
+    """Gets valid, non-obstacle neighbor coordinates."""
     neighbors = []
     potential_neighbors = []
     # 4-directional
@@ -21,8 +22,10 @@ def get_neighbors(grid, row, col, allow_diagonal=False):
         potential_neighbors.extend([(row - 1, col - 1), (row - 1, col + 1), (row + 1, col - 1), (row + 1, col + 1)])
 
     for r_new, c_new in potential_neighbors:
+        # Only check if the target neighbor itself is valid and not an obstacle
+        # Corner cutting checks will be done by the cost function in the algorithms
         if is_valid(r_new, c_new) and grid[r_new][c_new] != s.OBSTACLE:
-            neighbors.append((r_new, c_new))
+            neighbors.append((r_new, c_new)) # Return just the coordinate tuple
     return neighbors
 
 def reconstruct_path(came_from, start_pos, goal_pos):
@@ -31,16 +34,23 @@ def reconstruct_path(came_from, start_pos, goal_pos):
     current = goal_pos
     if current not in came_from and current != start_pos: # Goal not reached
          return None
-    while current != start_pos:
+    # Check came_from[current] isn't None before entering loop if start == goal
+    while current != start_pos and came_from.get(current) is not None:
         path.append(current)
-        # Check if current exists as a key, vital if goal is unreachable
-        if current in came_from:
-             current = came_from[current]
-        else:
-             return None # Path doesn't lead back to start
-    path.append(start_pos)
-    path.reverse()
-    return path
+        current = came_from.get(current)
+        # Safety break for potential cycles if came_from is malformed
+        if len(path) > s.GRID_WIDTH_CELLS * s.GRID_HEIGHT_CELLS * 2:
+            print("Error: Path reconstruction seems to be in a loop.")
+            return None # Indicate failure
+    if current == start_pos: # Add start only if loop finished properly
+        path.append(start_pos)
+        path.reverse()
+        return path
+    else: # Path didn't lead back to start
+        # This might happen if goal was unreachable but added to came_from somehow
+        print("Warning: Path reconstruction failed to reach start.")
+        return None
+
 
 def draw_grid_and_elements(screen, grid, start_pos, goal_pos, visited=None, path=None):
     """Draws the grid, obstacles, start/goal markers, visited cells, and path."""
@@ -90,3 +100,7 @@ def draw_grid_and_elements(screen, grid, start_pos, goal_pos, visited=None, path
     pygame.draw.circle(screen, s.PASTEL_OUTLINE, goal_center, s.CELL_SIZE // 3, 2)
 
     pygame.display.flip()
+
+
+    # Keep this update outside the main draw function, call it explicitly in main loop
+    # pygame.display.flip()

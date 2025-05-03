@@ -282,25 +282,35 @@ if __name__ == "__main__":
     # Define a list of (row, col) tuples for your complex static map
     custom_complex_obstacle_list = [
         # Example: A wall with a gap
-        (r, s.GRID_WIDTH_CELLS // 2) for r in range(s.GRID_HEIGHT_CELLS) if r not in range(8, 12)
+        (r, 7) for r in range(0, s.GRID_HEIGHT_CELLS) if r not in range(6, 8) and r not in range(15, 17)
     ] + [
-        # Example: Another wall
-        (s.GRID_HEIGHT_CELLS // 2, c) for c in range(s.GRID_WIDTH_CELLS // 3, s.GRID_WIDTH_CELLS * 2 // 3)
+        (r, 11) for r in range(2, 18) if r not in range(11, 13)
     ] + [
-        # Example: Some blocks
-        (5,5), (5,6), (6,5), (15, 20), (15, 21)
+        (8, c) for c in range(7, 26)
+    ] + [
+        (r, 25) for r in list(range(0, 7)) + list(range(14, 20))
+    ] + [
+        (6, c) for c in range(16, 26)
+    ] + [
+        (11, c) for c in list(range(15, 21)) + list(range(22, 30))
+    ] + [
+        (r, 15) for r in range(13, 20)
+    ] + [
+        (r, 20) for r in list(range(11, 16)) + list(range(18, 20))
     ]
 
     # --- Dynamic Minor Change Targets ---
     # Define a list with ONE (row, col) tuple.
     # If empty or None, it will try to place obstacle on the calculated path.
-    custom_minor_change_targets = [(10, 15)] # Example: Force obstacle at (10, 15)
+    custom_minor_change_targets = [
+        (11,21)
+    ] # Example: Force obstacle at (10, 15)
     # custom_minor_change_targets = None # Example: Use path-based placement
 
     # --- Dynamic Major Change Targets ---
     # Define a list with MULTIPLE (row, col) tuples.
     # If empty or None, it will try to place multiple obstacles near the path.
-    custom_major_change_targets = [(12, 16), (13, 16), (14, 16), (13, 17)] # Example: Block passage
+    custom_major_change_targets = [(12,11), (11,11), (18,11), (19,11) ] # Example: Block passage
     # custom_major_change_targets = None # Example: Use path-based placement
 
     # ==============================================================
