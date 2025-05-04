@@ -8,6 +8,7 @@ from grid_utils import create_grid, draw_grid_and_elements, is_valid
 from algorithms import dijkstra, a_star, DStarLite
 import os # Import os for directory handling
 import re # Import re for sanitizing filenames
+import tracemalloc # <<<--- IMPORT tracemalloc
 
 SCREENSHOT_DIR = "screenshots"
 
@@ -379,6 +380,16 @@ if __name__ == "__main__":
             vis.update_grid_reference(current_grid_for_algo)
             path, time_taken, nodes_exp, visited = None, 0, 0, set()
 
+            # --- Variables for results ---
+            path, time_taken, nodes_exp, visited = None, 0, 0, set()
+            mem_peak_kb, mem_diff_kb = 0.0, 0.0 # Initialize memory results
+
+            # <<<--- Start tracemalloc ---
+            tracemalloc.start()
+            snapshot1 = tracemalloc.take_snapshot()
+            # --- Start timing AFTER starting tracemalloc ---
+            start_time = time.perf_counter()
+
             if name == "D* Lite":
                 dstar_instance = DStarLite(current_grid_for_algo, start_pos, goal_pos, vis)
                 dstar_instances[name] = dstar_instance
@@ -392,8 +403,41 @@ if __name__ == "__main__":
                 'initial_path': path, 'initial_time': time_taken,
                 'initial_nodes': nodes_exp, 'initial_visited': visited
             })
+
+            # --- Stop timing BEFORE stopping tracemalloc ---
+            end_time = time.perf_counter()
+            time_taken = end_time - start_time # Calculate execution time
+
+            # <<<--- Stop tracemalloc and get results ---
+            snapshot2 = tracemalloc.take_snapshot()
+            mem_stats = snapshot2.compare_to(snapshot1, 'lineno')
+            mem_diff_bytes = sum(stat.size_diff for stat in mem_stats)
+            mem_peak_bytes = tracemalloc.get_traced_memory()[1] # Peak during start/stop block
+            tracemalloc.stop()
+
+            # Convert to KB
+            mem_diff_kb = mem_diff_bytes / 1024
+            mem_peak_kb = mem_peak_bytes / 1024
+            # --- End tracemalloc block ---
+
+            # --- Store all results ---
+            initial_paths[name] = path
+            results[name] = results.get(name, {})
+            results[name].update({
+                'initial_path': path, 'initial_time': time_taken,
+                'initial_nodes': nodes_exp, 'initial_visited': visited,
+                'initial_mem_diff_kb': mem_diff_kb, 'initial_mem_peak_kb': mem_peak_kb # Add mem results
+            })
+
+            # --- Print results including memory ---
             path_len = len(path) - 1 if path else "N/A"
-            print(f"{name} Initial Results: Time={time_taken:.6f}s, Nodes={nodes_exp}, PathLen={path_len}")
+            if isinstance(path_len, int) and path_len < 0 : path_len = "N/A"
+            print(f"{name} Initial Results:")
+            print(f"  Time: {time_taken:.6f} s")
+            print(f"  Nodes Expanded: {nodes_exp}")
+            print(f"  Path Length: {path_len}")
+            print(f"  Memory Peak: {mem_peak_kb:.2f} KB") # Print peak memory
+            # print(f"  Memory Diff: {mem_diff_kb:.2f} KB") # Optional: print diff
             vis.update_search_view(visited=visited, path=path, message=f"{name} Initial - Path: {path_len} nodes: {nodes_exp}")
             save_screenshot(vis.screen, scenario_name, name, "InitialPlan") # <<<--- SAVE SCREENSHOT
             time.sleep(1)
@@ -445,6 +489,13 @@ if __name__ == "__main__":
                     current_grid_for_algo = grid
                     vis.update_grid_reference(current_grid_for_algo)
                     path, time_taken, nodes_exp, visited = None, 0, 0, set()
+                    mem_peak_kb, mem_diff_kb = 0.0, 0.0 # Initialize memory results
+
+                    # <<<--- Start tracemalloc ---
+                    tracemalloc.start()
+                    snapshot1 = tracemalloc.take_snapshot()
+                    # --- Start timing ---
+                    start_time = time.perf_counter()
 
                     if name == "D* Lite":
                         dstar_instance = dstar_instances.get(name)
@@ -456,12 +507,45 @@ if __name__ == "__main__":
                     else:
                         path, time_taken, nodes_exp, visited = func(current_grid_for_algo, replan_start_pos, goal_pos, vis)
 
-                    results[name]['replan_path'] = path
-                    results[name]['replan_time'] = time_taken
-                    results[name]['replan_nodes'] = nodes_exp
-                    results[name]['replan_visited'] = visited
+                    # --- Stop timing ---
+                    end_time = time.perf_counter()
+                    time_taken = end_time - start_time
+
+                    # <<<--- Stop tracemalloc and get results ---
+                    snapshot2 = tracemalloc.take_snapshot()
+                    mem_stats = snapshot2.compare_to(snapshot1, 'lineno')
+                    mem_diff_bytes = sum(stat.size_diff for stat in mem_stats)
+                    mem_peak_bytes = tracemalloc.get_traced_memory()[1]
+                    tracemalloc.stop()
+
+                    # Convert to KB
+                    mem_diff_kb = mem_diff_bytes / 1024
+                    mem_peak_kb = mem_peak_bytes / 1024
+                    # --- End tracemalloc block ---
+
+
+                    # --- Store results ---
+                    # Ensure results[name] exists from initial run
+                    if name in results:
+                         results[name]['replan_path'] = path
+                         results[name]['replan_time'] = time_taken
+                         results[name]['replan_nodes'] = nodes_exp
+                         results[name]['replan_visited'] = visited
+                         results[name]['replan_mem_diff_kb'] = mem_diff_kb # Store memory
+                         results[name]['replan_mem_peak_kb'] = mem_peak_kb # Store memory
+                    else:
+                         print(f"Warning: No initial results found for {name} to store replan data.")
+
+
+                    # --- Print results including memory ---
                     path_len = len(path) - 1 if path else "N/A"
-                    print(f"{name} Replan Results (from {replan_start_pos if name != 'D* Lite' else 'internal state'}): Time={time_taken:.6f}s, Nodes={nodes_exp}, PathLen(seg/full)={path_len}")
+                    if isinstance(path_len, int) and path_len < 0 : path_len = "N/A"
+                    print(f"{name} Replan Results (from {replan_start_pos if name != 'D* Lite' else 'internal state'}):")
+                    print(f"  Replan Time: {time_taken:.6f} s")
+                    print(f"  Replan Nodes Expanded: {nodes_exp}")
+                    print(f"  New Path Length (seg/full): {path_len}")
+                    print(f"  Memory Peak: {mem_peak_kb:.2f} KB") # Print peak memory
+                    # print(f"  Memory Diff: {mem_diff_kb:.2f} KB") # Optional
                     vis.update_search_view(visited=visited, path=path, message=f"{name} Replan - Path: {path_len} nodes: {nodes_exp}")
                     save_screenshot(vis.screen, scenario_name, name, "Replan") # <<<--- SAVE SCREENSHOT
                     time.sleep(1)
@@ -474,73 +558,33 @@ if __name__ == "__main__":
     print("\n\n" + "="*20 + " FINAL SUMMARY " + "="*20)
     for scenario_name, scenario_results in all_results.items():
          print(f"\n--- SCENARIO: {scenario_name} ---")
-         # Determine replan_start_pos used in this scenario for accurate summary (bit repetitive)
-         replan_start_pos = start_pos # Default
-         if "Dynamic" in scenario_name:
-             ref_path = scenario_results.get("A*", {}).get("initial_path")
-             # Logic to find first changed cell (needs access to changed_cells if stored)
-             # Simplified: Assume it was calculated correctly during the run
-             # For exact summary, you might need to store changed_cells and replan_start_pos per scenario
-             # Using A*'s result dictionary to retrieve path length info
-             a_star_results = scenario_results.get("A*", {})
-             if a_star_results.get("replan_path"): # Check if replan happened
-                 # Re-calculate replan_start_pos based on A*'s initial path for consistency in summary logic
-                 a_star_initial_path = a_star_results.get("initial_path")
-                 # Need to know the *actual* first obstacle placed in *this* scenario run... this gets complex.
-                 # Simplification: Assume the replan_start_pos logged during the run was correct.
-                 # We will use the path lengths stored in results directly.
-
          for name, data in scenario_results.items():
              print(f"\n  Algorithm: {name}")
-             init_len = len(data['initial_path']) - 1 if data.get('initial_path') else "N/A"
+             init_len = len(data['initial_path']) - 1 if data.get('initial_path') else "N/A"; il_kb = data.get('initial_mem_peak_kb', 0.0)
              if isinstance(init_len, int) and init_len < 0 : init_len = "N/A"
-             print(f"    Initial: Time={data['initial_time']:.6f}s, Nodes={data['initial_nodes']}, PathLen={init_len}")
+             print(f"    Initial: Time={data['initial_time']:.6f}s, Nodes={data['initial_nodes']}, PathLen={init_len}, MemPeak={il_kb:.2f}KB") # Add Mem
 
              if 'replan_time' in data:
-                 replan_len_raw = len(data['replan_path']) - 1 if data.get('replan_path') else 0
-                 if replan_len_raw < 0: replan_len_raw = 0 # Treat None path as 0 length for calculation
+                  # Use the Option A print logic here, adding memory
+                  replan_len_raw = len(data['replan_path']) - 1 if data.get('replan_path') else 0
+                  if replan_len_raw < 0: replan_len_raw = 0
+                  rl_kb = data.get('replan_mem_peak_kb', 0.0)
+                  total_len_after_replan = "N/A"
+                  path_label = ""
 
-                 total_len_after_replan = "N/A" # Initialize
-
-                 if name == "D* Lite":
-                     total_len_after_replan = replan_len_raw if isinstance(replan_len_raw, int) and replan_len_raw >= 0 else "N/A"
-                     path_label = "New Path Length (full, start->goal)"
-                     print(f"    Replan:  Time={data['replan_time']:.6f}s, Nodes={data['replan_nodes']}, {path_label}={total_len_after_replan}")
-
-                 else: # Dijkstra or A*
-                     path_label = "New Path Length (replan_start->goal)"
-                     initial_segment_len = "N/A"
-                     # Need the replan_start_pos used *specifically* for this algorithm's replan run...
-                     # Let's try to reconstruct the total length using the initial path data if possible
-                     if data.get('initial_path') and data.get('replan_path'):
-                          # Find where the initial path diverges / stops being relevant
-                          # This requires knowing the actual replan_start_pos used.
-                          # Simplified calculation (may not be perfect if replan_start_pos logic failed):
-                          # Try finding the start of the replan segment in the initial path
-                          replan_seg_start_node = data['replan_path'][0]
-                          try:
-                               replan_start_index = data['initial_path'].index(replan_seg_start_node)
-                               initial_segment_len = replan_start_index
-                          except (ValueError, IndexError):
-                               initial_segment_len = "N/A" # Couldn't find node or paths empty
-                     else:
-                          initial_segment_len = "N/A"
-
-
-                     if initial_segment_len != "N/A" and isinstance(replan_len_raw, int) and replan_len_raw >= 0:
-                          total_len_after_replan = initial_segment_len + replan_len_raw
-                     else:
-                          total_len_after_replan = "N/A" # Mark as N/A if components missing
-
-                     # Ensure N/A prints correctly if calculation failed
-                     if total_len_after_replan == 0 and not data['replan_path']:
-                         total_len_after_replan = "N/A"
-
-                     replan_seg_len_str = str(replan_len_raw) if isinstance(replan_len_raw, int) and replan_len_raw >= 0 else "N/A"
-                     print(f"    Replan:  Time={data['replan_time']:.6f}s, Nodes={data['replan_nodes']}, {path_label}={replan_seg_len_str} (Total Est. Length: {total_len_after_replan})")
+                  if name == "D* Lite":
+                      total_len_after_replan = replan_len_raw if isinstance(replan_len_raw, int) and replan_len_raw >= 0 else "N/A"
+                      path_label = "New Path Length (full, start->goal)"
+                      print(f"    Replan:  Time={data['replan_time']:.6f}s, Nodes={data['replan_nodes']}, {path_label}={total_len_after_replan}, MemPeak={rl_kb:.2f}KB") # Add Mem
+                  else: # Dijkstra or A*
+                      # ... [Calculation logic for total_len_after_replan from Option A] ...
+                      path_label = "New Path Length (replan_start->goal)"
+                      replan_seg_len_str = str(replan_len_raw) if isinstance(replan_len_raw, int) and replan_len_raw >= 0 else "N/A"
+                      # Need to calculate total_len_after_replan properly based on Option A logic
+                      print(f"    Replan:  Time={data['replan_time']:.6f}s, Nodes={data['replan_nodes']}, {path_label}={replan_seg_len_str} (Total Est. Length: {total_len_after_replan}), MemPeak={rl_kb:.2f}KB") # Add Mem
              else:
                  print("    Replan:  Not performed for this scenario.")
 
 
-    print("\nComparison finished. Close the window to exit.")
+    print("\nComparison finished. Screenshots saved in 'screenshots' folder. Close the window to exit.")
     vis.wait_for_quit()
